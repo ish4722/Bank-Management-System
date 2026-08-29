@@ -5,30 +5,34 @@
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
-A modular **C++17 console-based Bank Management System** for managing savings and current accounts. The project demonstrates object-oriented programming, STL containers, file-based persistence, JSON serialization, CSV export, input validation, persistent transaction history, and unit testing.
+A modular **C++17 console-based Bank Management System** for managing savings and current accounts. The project demonstrates object-oriented programming, STL containers, SQLite-backed persistence, ACID transactions, concurrency control, transaction history, CSV export, input validation, and automated testing.
 
-> **Note:** This is an educational/portfolio project. It is not intended to represent a production banking system and does not provide authentication, encryption, database transactions, or other controls required for real financial software.
+> **Note:** This is an educational/portfolio project. It is not intended to represent a production banking system. It does not provide authentication, authorization, encryption, network security, or the operational controls required for real financial software.
 
 ---
 
 ## 📌 Features
 
 - ✅ Create Savings and Current accounts
-- ✅ Generate collision-checked account numbers
+- ✅ Generate unique 10-digit account numbers
 - ✅ View account details
 - ✅ Modify account name and type
 - ✅ Deposit money
 - ✅ Withdraw money with balance validation
 - ✅ Persistent transaction history
 - ✅ View transaction history from the CLI
-- ✅ Store transaction timestamp, type, amount, and resulting balance
-- ✅ Delete accounts
-- ✅ Persist account and transaction data in JSON
-- ✅ Export account data to CSV
-- ✅ O(1) average account lookup using `std::unordered_map`
+- ✅ Store transaction type, amount, resulting balance, and timestamp
+- ✅ Delete accounts with transaction history removed through foreign-key cascading
+- ✅ SQLite database persistence
+- ✅ ACID transactions for account mutations
+- ✅ Concurrency-safe withdrawals
+- ✅ Integer minor-unit storage for monetary values in SQLite
+- ✅ WAL mode and SQLite busy timeout for improved concurrent access
+- ✅ Export current account state to CSV
+- ✅ O(1) average in-memory account lookup using `std::unordered_map`
 - ✅ Centralized account management through a `Bank` class
 - ✅ Input validation for menu choices, account types, names, and amounts
-- ✅ Unit tests using Catch2
+- ✅ Catch2-based unit/integration tests
 - ✅ C++17 and Makefile-based build
 
 ---
@@ -36,40 +40,67 @@ A modular **C++17 console-based Bank Management System** for managing savings an
 ## 🏗️ Architecture
 
 ```text
-                    ┌─────────────────────┐
-                    │      main.cpp       │
-                    │   CLI / User Input  │
-                    └──────────┬──────────┘
-                               │
-                               ▼
-                    ┌─────────────────────┐
-                    │       Bank          │
-                    │ Account Management  │
-                    └──────────┬──────────┘
-                               │
-                    ┌──────────┴──────────┐
-                    ▼                     ▼
-             unordered_map            Persistence
-             <AccountNo, User>             │
-                    │                 ┌────┴────┐
-                    ▼                 ▼         ▼
-                  User              JSON      CSV
-                    │
-                    ▼
-              Transactions
-                    │
-             ┌──────┴──────┐
-             ▼             ▼
-          Deposit       Withdrawal
+                         ┌─────────────────────┐
+                         │      main.cpp       │
+                         │   CLI / User Input  │
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │        Bank         │
+                         │ Account Management  │
+                         └──────────┬──────────┘
+                                    │
+                   ┌────────────────┴────────────────┐
+                   ▼                                 ▼
+          unordered_map                         SQLite DB
+       <AccountNo, User>                           │
+                   │                         ┌───────┴────────┐
+                   ▼                         ▼                ▼
+                 User                    accounts       transactions
+                   │                         │                │
+                   ▼                         └───────┬────────┘
+             Transactions                            │
+                                                     ▼
+                                           ACID transaction boundary
+                                                     │
+                                           ┌─────────┴─────────┐
+                                           ▼                   ▼
+                                      COMMIT              ROLLBACK
 ```
+
+### Write path
+
+Every mutating bank operation is persisted through SQLite rather than rewriting a complete JSON document:
+
+```text
+Deposit / Withdrawal / Modify / Delete / Create
+                     │
+                     ▼
+          BEGIN IMMEDIATE TRANSACTION
+                     │
+                     ▼
+             Execute SQL statements
+                     │
+                     ├──────── failure ────────► ROLLBACK
+                     │
+                     ▼
+                   COMMIT
+                     │
+                     ▼
+              Reload in-memory state
+```
+
+For deposits and withdrawals, the balance update and transaction-history insert occur inside the **same database transaction**. Therefore either both changes become durable or neither does.
 
 ### Design goals
 
-- **Single source of truth:** account state is owned by `Bank`; there is no duplicated global/local account collection.
-- **Separation of concerns:** `User` manages account state and transactions, while `Bank` manages the collection and persistence workflow.
-- **Efficient lookup:** account numbers are keys in an `unordered_map`, giving average O(1) lookup.
-- **Persistent audit trail:** successful deposits and withdrawals append immutable transaction records to the account's history.
-- **Testability:** core operations do not require console input, making them straightforward to unit test.
+- **Single source of truth:** SQLite is the durable source of account state; `Bank` maintains an in-memory representation for fast CLI access.
+- **Separation of concerns:** `User` models account state and transactions, `Bank` manages account operations, and `Database` owns SQLite connection/execution details.
+- **Efficient lookup:** account numbers remain keys in an `unordered_map`, providing average O(1) lookup in the application layer.
+- **Persistent audit trail:** successful deposits and withdrawals append transaction records to the database.
+- **Atomic mutations:** balance changes and their corresponding transaction records are committed together.
+- **Concurrency safety:** SQLite write transactions serialize competing writers, while the withdrawal SQL predicate enforces the sufficient-balance invariant at the database level.
 
 ---
 
@@ -78,17 +109,20 @@ A modular **C++17 console-based Bank Management System** for managing savings an
 | Technology / Concept | Usage |
 |---|---|
 | **C++17** | Application implementation |
-| **OOP** | `User` and `Bank` classes, encapsulation |
+| **OOP** | `User`, `Bank`, and `Database` classes; encapsulation |
 | **STL** | `unordered_map`, `vector`, strings |
-| **JSON** | Persistent account and transaction storage |
+| **SQLite3** | Durable relational persistence |
+| **SQL** | Account and transaction data model |
+| **ACID transactions** | Atomic account mutations and transaction logging |
+| **Concurrency control** | `BEGIN IMMEDIATE`, SQLite writer locking, busy timeout |
+| **WAL** | SQLite write-ahead logging mode |
+| **Integer minor units** | Monetary values stored as cents/paise in SQLite |
 | **CSV** | Tabular account export |
-| **Catch2** | Unit testing |
+| **Catch2** | Unit and integration testing |
 | **Make** | Build automation |
-| **File I/O** | Reading/writing persistent data |
 | **Input validation** | Safe command-line interaction |
-| **Transaction history** | Timestamped deposit/withdrawal records |
 
-The project uses the single-header [nlohmann/json](https://github.com/nlohmann/json) library for JSON serialization.
+The project uses [nlohmann/json](https://github.com/nlohmann/json) as a JSON dependency for the `User` model's serialization helpers, while **SQLite is the active persistence layer used by `Bank`**.
 
 ---
 
@@ -100,9 +134,22 @@ The project uses the single-header [nlohmann/json](https://github.com/nlohmann/j
   - GCC
   - Clang
   - MSVC
-- GNU Make for the Makefile workflow
+- GNU Make
+- SQLite3 development library and headers
 - The repository's JSON header at `include/json.hpp`
 - Catch2 single-header dependency at `tests/catch.hpp`
+
+### macOS
+
+If SQLite is not already available through the system/toolchain, install it with your preferred package manager and ensure `sqlite3` is visible to the compiler/linker.
+
+### Linux
+
+Install the SQLite3 development package provided by your distribution, for example:
+
+```bash
+sudo apt install g++ make libsqlite3-dev
+```
 
 ### Clone the repository
 
@@ -117,11 +164,28 @@ cd Bank-Management-System
 make
 ```
 
+The Makefile links the application against SQLite3 and pthreads.
+
 ### Run
 
 ```bash
 make run
 ```
+
+The application creates/uses the SQLite database at:
+
+```text
+data/bank.db
+```
+
+SQLite may additionally create:
+
+```text
+data/bank.db-wal
+data/bank.db-shm
+```
+
+while WAL mode is active. These runtime files are ignored by Git.
 
 ### Run tests
 
@@ -129,7 +193,9 @@ make run
 make test
 ```
 
-### Clean build artifacts
+The test suite includes database persistence, atomicity, and concurrent-withdrawal tests in addition to the existing user-level tests.
+
+### Clean build artifacts and runtime databases
 
 ```bash
 make clean
@@ -139,8 +205,8 @@ make clean
 
 ```bash
 g++ -std=c++17 -Wall -Wextra -I./include \
-    main.cpp src/user.cpp src/bank.cpp \
-    -o bank
+    main.cpp src/user.cpp src/bank.cpp src/database.cpp \
+    -o bank -lsqlite3 -pthread
 ```
 
 Then run:
@@ -153,7 +219,7 @@ Then run:
 
 ## 📖 Usage Guide
 
-When the application starts, it loads existing accounts and their transaction histories from `data/accounts.json`.
+When the application starts, `Bank` opens the SQLite database, ensures the schema exists, and loads accounts and transaction history into memory.
 
 ```text
 ==== WELCOME TO BANK MANAGEMENT SYSTEM ====
@@ -175,8 +241,8 @@ When the application starts, it loads existing accounts and their transaction hi
 3. Select:
    - `0` → Savings
    - `1` → Current
-4. The system generates a unique account number.
-5. The new account is persisted to JSON.
+4. The system generates a unique 10-digit account number.
+5. The account is inserted into SQLite inside a write transaction.
 
 New accounts start with a balance of `0.00` and an empty transaction history.
 
@@ -193,45 +259,54 @@ Displays:
 
 Allows the account holder's name and account type to be changed. The account number and balance remain unchanged.
 
+The update is committed through SQLite as a transaction.
+
 ### 4️⃣ Delete Account
 
-Removes the account and its stored transaction history from the active JSON data.
+Deletes the account from SQLite. Its transaction history is automatically deleted through the foreign-key relationship with `ON DELETE CASCADE`.
 
 ### 5️⃣ Deposit Money
 
-A successful deposit:
+A successful deposit performs the following database sequence:
 
-1. Validates that the amount is positive.
-2. Increases the account balance.
-3. Creates a transaction record.
-4. Stores the resulting balance in that record.
-5. Records the current timestamp.
-6. Persists the updated account to JSON.
-
-Example transaction:
-
-```json
-{
-    "type": "Deposit",
-    "amount": 500.0,
-    "balance_after": 1500.0,
-    "timestamp": "2026-08-29 22:15:10"
-}
+```text
+BEGIN IMMEDIATE
+     │
+     ▼
+UPDATE accounts
+SET balance = balance + amount
+     │
+     ▼
+INSERT transaction record
+     │
+     ▼
+COMMIT
 ```
+
+The database stores the amount and resulting balance as integer cents/paise rather than binary floating-point values.
 
 ### 6️⃣ Withdraw Money
 
-A successful withdrawal requires:
+A withdrawal is accepted only when:
 
 ```text
 amount > 0
 AND
-amount <= current balance
+balance >= amount
 ```
 
-After a successful withdrawal, the system records the transaction and persists the updated balance and history.
+The balance check is performed directly in the SQL `UPDATE`:
 
-Failed withdrawals do **not** create transaction records.
+```sql
+UPDATE accounts
+SET balance_cents = balance_cents - ?
+WHERE account_number = ?
+  AND balance_cents >= ?;
+```
+
+This matters under concurrency: the application does not perform a vulnerable `SELECT balance → check in C++ → UPDATE` sequence. The sufficient-balance condition is part of the database write itself.
+
+The successful balance update and transaction-history insert are committed together. A failed withdrawal creates no transaction record and leaves the balance unchanged.
 
 ### 7️⃣ View Transaction History
 
@@ -245,17 +320,17 @@ Timestamp             Type           Amount         Balance After
 2026-08-29 22:18:32   Withdrawal     200.00         1300.00
 ```
 
-The history is stored with the account and survives application restarts.
+The history is stored in the SQLite `transactions` table and survives application restarts.
 
 ### 8️⃣ Export Accounts to CSV
 
-Exports account information to:
+Exports the current account state to:
 
 ```text
 data/accounts.csv
 ```
 
-The CSV export contains the current account state. Transaction history remains stored in JSON.
+The CSV contains account number, name, balance, and account type. Transaction history remains in SQLite.
 
 ### 9️⃣ Exit
 
@@ -265,7 +340,7 @@ Select `9` to exit the application.
 
 ## 💳 Transaction History Design
 
-Each successful monetary operation creates one `Transaction` object:
+Each successful monetary operation creates one `Transaction` object in memory and one corresponding row in SQLite:
 
 ```cpp
 struct Transaction {
@@ -276,36 +351,22 @@ struct Transaction {
 };
 ```
 
-The transaction is appended only **after** the account operation succeeds.
+The durable representation is normalized into the `transactions` table:
 
 ```text
-Deposit / Withdrawal request
-          │
-          ▼
-     Validate amount
-          │
-       ┌──┴──┐
-       │     │
-     Invalid Valid
-       │     │
-       ▼     ▼
-      Fail  Update balance
-                │
-                ▼
-          Create Transaction
-                │
-                ├── Type
-                ├── Amount
-                ├── Balance After
-                └── Timestamp
-                │
-                ▼
-            save() → JSON
+transactions
+┌────────────┬────────────────┬──────────────┬─────────────────────┐
+│ account    │ type           │ amount       │ balance_after       │
+├────────────┼────────────────┼──────────────┼─────────────────────┤
+│ 4829137461 │ Deposit        │ 50000        │ 150000              │
+│ 4829137461 │ Withdrawal     │ 20000        │ 130000              │
+└────────────┴────────────────┴──────────────┴─────────────────────┘
+                 values represented in cents/paise
 ```
 
-### Why store `balanceAfter`?
+### Why store `balance_after`?
 
-Storing the resulting balance makes each transaction self-describing and provides a useful historical snapshot:
+It provides a historical snapshot of the account balance immediately after each successful transaction:
 
 ```text
 Transaction 1: +500  → balance 1500
@@ -313,9 +374,135 @@ Transaction 2: -200  → balance 1300
 Transaction 3: +100  → balance 1400
 ```
 
-This is useful for displaying account history and auditing the sequence of successful operations.
+This makes the transaction history useful for display and auditing while keeping the current balance separately available in `accounts`.
 
-> For a production financial ledger, transactions should be immutable, uniquely identified, durably stored, and protected by database transactions and audit controls.
+---
+
+## 🔐 ACID & Concurrency Design
+
+The SQLite implementation is the main architectural upgrade of the project.
+
+### Atomicity
+
+A monetary operation consists of multiple database changes:
+
+1. Update account balance.
+2. Insert transaction history.
+
+These operations execute inside one transaction:
+
+```text
+BEGIN IMMEDIATE
+     │
+     ├── UPDATE accounts
+     │
+     ├── INSERT transactions
+     │
+     └── COMMIT
+```
+
+If any statement fails:
+
+```text
+ROLLBACK
+```
+
+so the partial state is not persisted.
+
+### Consistency
+
+The schema enforces important invariants at the database layer:
+
+- Account numbers are unique primary keys.
+- Account names cannot be empty.
+- Balances cannot become negative.
+- Account types are restricted to `Savings` or `Current`.
+- Transaction amounts must be positive.
+- Transaction balances cannot be negative.
+- Transactions must reference an existing account.
+
+### Isolation / concurrency control
+
+Write operations use:
+
+```sql
+BEGIN IMMEDIATE TRANSACTION;
+```
+
+This acquires SQLite's write reservation before the balance-changing sequence. Competing writers therefore cannot simultaneously modify the same database state as if they were independent read-modify-write operations.
+
+Withdrawals additionally enforce the balance invariant directly in SQL:
+
+```sql
+WHERE account_number = ?
+  AND balance_cents >= ?
+```
+
+Consequently, if two concurrent requests each attempt to withdraw the entire available balance, **at most one can succeed**.
+
+The database connection also configures a busy timeout so a writer can wait briefly for a competing lock instead of immediately failing.
+
+### Durability
+
+After `COMMIT`, SQLite is responsible for durable persistence. The connection uses:
+
+```sql
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = FULL;
+```
+
+WAL mode improves the behavior of concurrent readers/writers for a local SQLite application, while `synchronous = FULL` requests stronger durability guarantees.
+
+> This is still a local educational system, not a production distributed banking backend. SQLite's concurrency model is appropriate for this application's scope but does not replace the architecture required for a multi-service financial platform.
+
+---
+
+## 🗄️ Database Schema
+
+The database contains two primary tables.
+
+### `accounts`
+
+```text
+accounts
+├── account_number      TEXT PRIMARY KEY
+├── user_name           TEXT NOT NULL
+├── balance_cents       INTEGER NOT NULL
+└── account_type        TEXT NOT NULL
+```
+
+The balance is stored as an integer minor unit:
+
+```text
+₹100.50 → 10050 paise
+$100.50 → 10050 cents
+```
+
+This avoids storing monetary state as a binary floating-point value inside SQLite.
+
+### `transactions`
+
+```text
+transactions
+├── id                   INTEGER PRIMARY KEY
+├── account_number       TEXT FOREIGN KEY
+├── type                 TEXT
+├── amount_cents         INTEGER
+├── balance_after_cents  INTEGER
+└── timestamp            TEXT
+```
+
+The relationship is:
+
+```text
+accounts 1 ──────────── * transactions
+```
+
+Deleting an account cascades to its transaction records.
+
+An index on `(account_number, id)` makes transaction-history retrieval efficient for a specific account.
+
+The schema is also documented in [`sql/schema.sql`](sql/schema.sql).
 
 ---
 
@@ -333,19 +520,24 @@ Bank-Management-System/
 ├── include/
 │   ├── json.hpp                # nlohmann/json single-header library
 │   ├── user.h                  # User and Transaction models
-│   └── bank.h                  # Bank/account-manager interface
+│   ├── bank.h                  # Bank/account-manager interface
+│   └── database.h              # SQLite database wrapper
 │
 ├── src/
-│   ├── user.cpp                # User, transaction and JSON logic
-│   └── bank.cpp                # Account collection and persistence logic
+│   ├── user.cpp                # User, transaction and JSON helpers
+│   ├── bank.cpp                # Account operations and SQLite persistence
+│   └── database.cpp             # SQLite connection/schema configuration
+│
+├── sql/
+│   └── schema.sql              # Relational SQLite schema
 │
 ├── tests/
 │   ├── catch.hpp               # Catch2 single-header test framework
-│   └── user_test.cpp           # Unit tests
+│   ├── user_test.cpp           # User/model tests
+│   └── bank_test.cpp            # SQLite persistence, ACID, concurrency tests
 │
 └── data/
-    ├── accounts.json           # Persistent account + transaction data
-    └── accounts.csv            # Generated account export
+    └── bank.db                 # Runtime SQLite database (gitignored)
 ```
 
 ---
@@ -354,168 +546,100 @@ Bank-Management-System/
 
 ### `User`
 
-Represents a single bank account and owns its transaction history.
-
-Private state:
-
-```cpp
-std::string account_number;
-std::string user_name;
-double account_balance;
-Type account_type;
-std::vector<Transaction> transactions;
-```
+Represents a single bank account and owns its in-memory transaction history.
 
 ### `Transaction`
 
-Represents one successful deposit or withdrawal:
+Represents one successful deposit or withdrawal with its type, amount, resulting balance, and timestamp.
 
-```cpp
-TransactionType type;
-double amount;
-double balanceAfter;
-std::string timestamp;
-```
+### `Database`
+
+Provides the SQLite connection and low-level database operations. It owns the `sqlite3*` handle and initializes the database configuration/schema.
 
 ### `Bank`
 
-Owns and manages all accounts:
+Coordinates account operations and persistence. It owns:
 
 ```cpp
 std::unordered_map<std::string, User> accounts;
+Database database;
 ```
 
 Responsibilities include:
 
-- Loading accounts from JSON
-- Saving accounts to JSON
+- Loading accounts from SQLite
 - Creating accounts
 - Finding accounts
 - Depositing and withdrawing
 - Modifying accounts
 - Deleting accounts
 - Exporting CSV
+- Managing database transactions
+- Reloading the in-memory representation after committed writes
 
 ---
 
 ## 🔢 Account Number Generation
 
-Account numbers are generated by `Bank` rather than relying on a process-local static counter.
-
-The implementation generates a random 10-digit identifier and checks the existing account map before accepting it:
+Account numbers are generated as random 10-digit identifiers.
 
 ```text
 Generate candidate
       │
       ▼
-Already exists?
-   │       │
-  YES      NO
-   │       │
-   └─ retry ▼
-          use ID
+Insert into SQLite
+      │
+      ├── UNIQUE constraint violation → retry
+      │
+      ▼
+    COMMIT
 ```
 
-This avoids the restart/deletion problems associated with a simple in-memory counter.
+The database's primary-key constraint provides the final uniqueness guarantee rather than relying only on the process-local `unordered_map`.
 
-For a production financial system, a durable unique identifier service would be preferable.
-
----
-
-## 💾 Data Persistence
-
-### JSON
-
-Account state and transaction history are persisted together:
-
-```json
-[
-    {
-        "account_number": "4829137461",
-        "user_name": "John Doe",
-        "account_balance": 1300.0,
-        "account_type": "Savings",
-        "transactions": [
-            {
-                "type": "Deposit",
-                "amount": 1500.0,
-                "balance_after": 1500.0,
-                "timestamp": "2026-08-29 22:15:10"
-            },
-            {
-                "type": "Withdrawal",
-                "amount": 200.0,
-                "balance_after": 1300.0,
-                "timestamp": "2026-08-29 22:18:32"
-            }
-        ]
-    }
-]
-```
-
-### Persistence flow
-
-```text
-Application
-     │
-     ▼
- Bank / unordered_map
-     │
-     ▼
- save()
-     │
-     ▼
- data/accounts.json
-```
-
-At startup:
-
-```text
- data/accounts.json
-        │
-        ▼
-      load()
-        │
-        ▼
- Bank / unordered_map
-```
-
-Older account JSON files that do not contain a `transactions` field are still loadable; such accounts start with an empty history.
-
-### CSV
-
-CSV is used for convenient tabular account export:
-
-```csv
-Account Number,Name,Balance,Type
-4829137461,John Doe,1300.00,Savings
-```
-
-Transaction history remains available through JSON and the application's transaction-history menu.
+For a production financial system, a dedicated durable identifier strategy would still be preferable.
 
 ---
 
 ## 🧪 Testing
 
-The project uses Catch2 for unit testing.
+The project uses Catch2 for automated testing.
 
-Tests cover:
+Tests cover the original user/model behavior as well as the database-backed implementation.
 
-- Valid deposits
-- Invalid deposits
-- Valid withdrawals
-- Insufficient balance
-- Invalid withdrawals
-- Account type serialization
-- Account field updates
-- JSON round-trip
-- Transaction creation
-- Transaction type and amount
-- Resulting balance after transaction
-- Transaction history persistence through JSON
-- Timestamp creation
+### Database persistence
 
-Run the tests with:
+Verifies that:
+
+- An account survives destruction of one `Bank` instance.
+- A new `Bank` instance can reload the account from SQLite.
+- Balance is restored correctly.
+- Transaction history is restored correctly.
+
+### Concurrency
+
+Two threads open independent `Bank` instances against the same SQLite database and simultaneously attempt to withdraw the entire available balance.
+
+The test verifies:
+
+```text
+100 balance
+   │
+   ├── Thread A → withdraw 100 → SUCCESS
+   │
+   └── Thread B → withdraw 100 → FAILURE
+
+Final balance = 0
+Successful withdrawals = 1
+```
+
+This demonstrates that the database transaction/locking strategy prevents double spending in this scenario.
+
+### Atomicity
+
+A withdrawal larger than the current balance is rejected without changing the account balance or inserting a transaction record.
+
+Run all tests with:
 
 ```bash
 make test
@@ -527,21 +651,18 @@ make test
 
 Let `N` be the number of accounts and `T` the number of transactions for one account.
 
-| Operation | Complexity |
+| Operation | Application / DB behavior |
 |---|---:|
-| Find account | **O(1)** average |
-| Insert account | **O(1)** average |
-| Delete account | **O(1)** average |
-| Deposit / Withdraw in memory | **O(1)** |
-| Append transaction | **O(1)** amortized |
-| View transaction history | **O(T)** |
+| Find account in memory | **O(1)** average |
+| Insert account | **O(log N)** database index behavior, plus reload cost |
+| Delete account | **O(log N)** database index behavior, plus reload cost |
+| Deposit / Withdraw SQL update | **O(log N)** indexed account lookup |
+| Append transaction | **O(log T)** index maintenance |
+| Load accounts | **O(N + total transactions)** |
+| Load one account's history | **O(T)** result traversal |
 | Export CSV | **O(N)** |
-| Load JSON | **O(N + total transactions)** |
-| Save JSON | **O(N + total transactions)** |
 
-Although account lookup is efficient, each successful mutation rewrites the complete JSON file. Therefore persistence remains proportional to the total stored data.
-
-For large-scale systems, a database with indexes and transactional updates would be more appropriate.
+The in-memory `unordered_map` still provides average O(1) account lookup for CLI reads. Database-backed mutations have database/index overhead, but unlike the previous whole-file JSON approach they update only the affected relational rows.
 
 ---
 
@@ -555,10 +676,13 @@ The application validates:
 - Sufficient balance before withdrawal
 - Empty account names
 - Missing accounts
-- JSON file availability/format
-- CSV file availability
+- SQL statement preparation/execution
+- Transaction commit/rollback failures
+- CSV output availability
 
-Invalid deposit/withdrawal requests do not alter the balance or create transaction records.
+Failed database operations roll back the active transaction where appropriate.
+
+Prepared SQL statements are used with bound parameters for user-provided values, avoiding string concatenation for account names and amounts.
 
 ---
 
@@ -567,21 +691,20 @@ Invalid deposit/withdrawal requests do not alter the balance or create transacti
 This project intentionally remains a local educational application. A real banking system would additionally require:
 
 - Authentication and authorization
-- Secure password/PIN handling
+- Secure credential/PIN handling
 - Encryption in transit and at rest
-- Database-backed persistence
-- ACID transactions
-- Concurrency control
-- Immutable transaction IDs
+- Database access control
 - Double-entry accounting / ledger semantics
-- Audit logging
+- Immutable transaction identifiers
+- Idempotency for retried requests
+- Stronger audit logging
 - Role-based access control
 - Backups and disaster recovery
 - Monitoring and observability
+- Distributed concurrency/coordination where applicable
+- Comprehensive integration and failure testing
 
-The current JSON persistence and `double` balance representation are suitable for demonstrating C++ concepts but are not appropriate for real financial workloads.
-
-For production monetary calculations, integer minor units (such as paise/cents) or a suitable decimal fixed-point representation should be preferred over binary floating-point values.
+SQLite provides ACID transactions and local concurrency control for this project, but it should not be presented as equivalent to the architecture of a production banking platform.
 
 ---
 
@@ -589,17 +712,18 @@ For production monetary calculations, integer minor units (such as paise/cents) 
 
 Potential extensions include:
 
-1. **Database persistence**
-   - SQLite for a local application
-   - PostgreSQL/MySQL for a multi-user service
+1. **Database migrations**
+   - Versioned schema migrations
+   - Seed/demo data
 
 2. **Authentication**
    - Login/PIN
    - Role-based permissions
 
-3. **Transaction identifiers**
-   - Unique transaction ID
-   - Search/filter transactions
+3. **Stronger ledger model**
+   - Immutable transaction IDs
+   - Double-entry accounting
+   - Idempotency keys
 
 4. **Advanced reporting**
    - Statements by date range
@@ -610,18 +734,18 @@ Potential extensions include:
    - Separate frontend and backend
    - HTTP/JSON interface
 
-6. **Concurrency support**
-   - Thread-safe account operations
-   - Database transactions/locking
+6. **Threaded service layer**
+   - Connection-per-worker strategy
+   - Request-level transaction boundaries
 
-7. **Better money representation**
-   - Store amounts as integer paise/cents instead of `double`
+7. **Stronger testing**
+   - More concurrent workloads
+   - Failure-injection tests
+   - Database migration tests
+   - Property-based tests
 
-8. **Stronger testing**
-   - Persistence tests
-   - Bank-level integration tests
-   - Input-validation tests
-   - Edge-case and property-based tests
+8. **Production database**
+   - PostgreSQL/MySQL for a multi-user service where appropriate
 
 ---
 
@@ -629,34 +753,18 @@ Potential extensions include:
 
 1. Fork the repository.
 2. Create a feature branch.
-3. Make focused changes.
-4. Add/update tests where appropriate.
-5. Build and test locally.
-6. Open a pull request with a clear description.
-
-Example:
+3. Keep database changes and schema changes synchronized.
+4. Add or update tests for behavioral changes.
+5. Run:
 
 ```bash
-git checkout -b feature/transaction-history
-git add .
-git commit -m "Add persistent transaction history"
-git push origin feature/transaction-history
+make test
 ```
 
----
-
-## 📜 License
-
-This project is licensed under the **MIT License**. See [`LICENSE`](LICENSE) for details.
-
-The project includes third-party libraries with their own licensing information. In particular, `include/json.hpp` is provided by the nlohmann/json project under the MIT License.
+6. Open a pull request describing the change and its database/concurrency implications where applicable.
 
 ---
 
-## 👨‍💻 Author
+## 📄 License
 
-**Ishu**
-
-GitHub: [ish4722](https://github.com/ish4722)
-
-Repository: [Bank-Management-System](https://github.com/ish4722/Bank-Management-System)
+This project is licensed under the MIT License. See [`LICENSE`](LICENSE) for details.
