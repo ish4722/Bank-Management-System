@@ -1,9 +1,67 @@
-#include "user.h"
+#include "bank.h"
+
+#include <limits>
 
 using namespace std;
 
+namespace {
+int readChoice() {
+    int choice;
+    while (!(cin >> choice)) {
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        cout << "Invalid input. Enter a number: ";
+    }
+    return choice;
+}
+
+Type readAccountType() {
+    int type;
+    while (true) {
+        cout << "Enter Account Type (0 for Savings, 1 for Current): ";
+        if (cin >> type && (type == 0 || type == 1)) {
+            return type == 0 ? Type::SAVINGS : Type::CURRENT;
+        }
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        cout << "Invalid choice! Please enter 0 or 1.\n";
+    }
+}
+
+string readName() {
+    string name;
+    cout << "Enter Your Name: ";
+    getline(cin >> ws, name);
+    return name;
+}
+
+double readAmount(const string& prompt) {
+    double amount;
+    while (true) {
+        cout << prompt;
+        if (cin >> amount && amount > 0.0) {
+            return amount;
+        }
+        cin.clear();
+        cin.ignore(numeric_limits<streamsize>::max(), '\n');
+        cout << "Invalid amount. Please enter a positive number.\n";
+    }
+}
+
+string readAccountNumber() {
+    string number;
+    cout << "Enter Account Number: ";
+    cin >> number;
+    return number;
+}
+}
+
 int main() {
-    vector<User> users = User::loadFromJson();  // Load users from JSON at the start
+    Bank bank;
+    if (!bank.load()) {
+        cerr << "Error: Could not load account data.\n";
+        return 1;
+    }
 
     int choice;
     do {
@@ -17,106 +75,64 @@ int main() {
         cout << "7. Export Accounts to CSV\n";
         cout << "8. Exit\n";
         cout << "Enter your choice: ";
-        cin >> choice;
+        choice = readChoice();
 
         switch (choice) {
             case 1: {
-                User newUser;
-                newUser.createAccount();
-                users.push_back(newUser);  // Update local users list
+                const string name = readName();
+                const Type type = readAccountType();
+                string accountNumber;
+                if (bank.createAccount(name, type, accountNumber))
+                    cout << "Account " << accountNumber << " created successfully!\n";
+                else
+                    cout << "Could not create account.\n";
                 break;
             }
             case 2: {
-                string accNumber;
-                cout << "Enter Account Number: ";
-                cin >> accNumber;
-
-                auto it = find_if(users.begin(), users.end(), [&](const User& u) {
-                    return u.getAccountNumber() == accNumber;
-                });
-
-                if (it != users.end()) {
-                    it->displayAccount();
-                } else {
-                    cout << "Account Not Found!" << endl;
-                }
+                const User* user = bank.findAccount(readAccountNumber());
+                if (user) user->displayAccount();
+                else cout << "Account Not Found!\n";
                 break;
             }
             case 3: {
-                string accNumber;
-                cout << "Enter Account Number: ";
-                cin >> accNumber;
-
-                auto it = find_if(users.begin(), users.end(), [&](const User& u) {
-                    return u.getAccountNumber() == accNumber;
-                });
-
-                if (it != users.end()) {
-                    it->modifyAccount();
-                } else {
-                    cout << "Account Not Found!" << endl;
-                }
+                const string accountNumber = readAccountNumber();
+                const string name = readName();
+                const Type type = readAccountType();
+                if (bank.modifyAccount(accountNumber, name, type))
+                    cout << "Account Details Updated Successfully!\n";
+                else
+                    cout << "Account Not Found or update failed!\n";
                 break;
             }
             case 4: {
-                string accNumber;
-                cout << "Enter Account Number: ";
-                cin >> accNumber;
-
-                auto it = find_if(users.begin(), users.end(), [&](const User& u) {
-                    return u.getAccountNumber() == accNumber;
-                });
-
-                if (it != users.end()) {
-                    it->deleteAccount();
-                    users.erase(it);  // Remove from vector
-                } else {
-                    cout << "Account Not Found!" << endl;
-                }
+                if (bank.deleteAccount(readAccountNumber()))
+                    cout << "Account deleted successfully.\n";
+                else
+                    cout << "Account Not Found!\n";
                 break;
             }
             case 5: {
-                string accNumber;
-                double amount;
-                cout << "Enter Account Number: ";
-                cin >> accNumber;
-                cout << "Enter Amount to Deposit: ";
-                cin >> amount;
-
-                auto it = find_if(users.begin(), users.end(), [&](const User& u) {
-                    return u.getAccountNumber() == accNumber;
-                });
-
-                if (it != users.end()) {
-                    it->deposit(amount);
-                } else {
-                    cout << "Account Not Found!" << endl;
-                }
+                const string accountNumber = readAccountNumber();
+                const double amount = readAmount("Enter Amount to Deposit: ");
+                if (bank.deposit(accountNumber, amount))
+                    cout << "Deposit successful.\n";
+                else
+                    cout << "Account Not Found or deposit failed!\n";
                 break;
             }
             case 6: {
-                string accNumber;
-                double amount;
-                cout << "Enter Account Number: ";
-                cin >> accNumber;
-                cout << "Enter Amount to Withdraw: ";
-                cin >> amount;
-
-                auto it = find_if(users.begin(), users.end(), [&](const User& u) {
-                    return u.getAccountNumber() == accNumber;
-                });
-
-                if (it != users.end()) {
-                    it->withdraw(amount);
-                } else {
-                    cout << "Account Not Found!" << endl;
-                }
+                const string accountNumber = readAccountNumber();
+                const double amount = readAmount("Enter Amount to Withdraw: ");
+                if (bank.withdraw(accountNumber, amount))
+                    cout << "Withdrawal successful.\n";
+                else
+                    cout << "Account Not Found, invalid amount, or insufficient balance!\n";
                 break;
             }
-            case 7: {
-                User::exportToCSV(users);
+            case 7:
+                cout << (bank.exportToCSV() ? "Accounts exported successfully to CSV.\n"
+                                             : "Error exporting accounts to CSV!\n");
                 break;
-            }
             case 8:
                 cout << "Exiting... Have a Nice Day!\n";
                 break;
