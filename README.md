@@ -5,7 +5,7 @@
 ![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)
 ![Status](https://img.shields.io/badge/Status-Active-brightgreen?style=for-the-badge)
 
-A modular **C++17 console-based Bank Management System** for managing savings and current accounts. The project demonstrates object-oriented programming, STL containers, file-based persistence, JSON serialization, CSV export, input validation, and unit testing.
+A modular **C++17 console-based Bank Management System** for managing savings and current accounts. The project demonstrates object-oriented programming, STL containers, file-based persistence, JSON serialization, CSV export, input validation, persistent transaction history, and unit testing.
 
 > **Note:** This is an educational/portfolio project. It is not intended to represent a production banking system and does not provide authentication, encryption, database transactions, or other controls required for real financial software.
 
@@ -19,8 +19,11 @@ A modular **C++17 console-based Bank Management System** for managing savings an
 - ✅ Modify account name and type
 - ✅ Deposit money
 - ✅ Withdraw money with balance validation
+- ✅ Persistent transaction history
+- ✅ View transaction history from the CLI
+- ✅ Store transaction timestamp, type, amount, and resulting balance
 - ✅ Delete accounts
-- ✅ Persist account data in JSON
+- ✅ Persist account and transaction data in JSON
 - ✅ Export account data to CSV
 - ✅ O(1) average account lookup using `std::unordered_map`
 - ✅ Centralized account management through a `Bank` class
@@ -31,8 +34,6 @@ A modular **C++17 console-based Bank Management System** for managing savings an
 ---
 
 ## 🏗️ Architecture
-
-The project separates the user/account model from account management and the command-line interface:
 
 ```text
                     ┌─────────────────────┐
@@ -53,14 +54,21 @@ The project separates the user/account model from account management and the com
                     │                 ┌────┴────┐
                     ▼                 ▼         ▼
                   User              JSON      CSV
-             Account State          Storage    Export
+                    │
+                    ▼
+              Transactions
+                    │
+             ┌──────┴──────┐
+             ▼             ▼
+          Deposit       Withdrawal
 ```
 
 ### Design goals
 
 - **Single source of truth:** account state is owned by `Bank`; there is no duplicated global/local account collection.
-- **Separation of concerns:** `User` manages account state and account-level operations, while `Bank` manages the collection and persistence workflow.
+- **Separation of concerns:** `User` manages account state and transactions, while `Bank` manages the collection and persistence workflow.
 - **Efficient lookup:** account numbers are keys in an `unordered_map`, giving average O(1) lookup.
+- **Persistent audit trail:** successful deposits and withdrawals append immutable transaction records to the account's history.
 - **Testability:** core operations do not require console input, making them straightforward to unit test.
 
 ---
@@ -71,13 +79,14 @@ The project separates the user/account model from account management and the com
 |---|---|
 | **C++17** | Application implementation |
 | **OOP** | `User` and `Bank` classes, encapsulation |
-| **STL** | `unordered_map`, strings, iterators |
-| **JSON** | Persistent account storage |
-| **CSV** | Tabular data export |
+| **STL** | `unordered_map`, `vector`, strings |
+| **JSON** | Persistent account and transaction storage |
+| **CSV** | Tabular account export |
 | **Catch2** | Unit testing |
 | **Make** | Build automation |
 | **File I/O** | Reading/writing persistent data |
 | **Input validation** | Safe command-line interaction |
+| **Transaction history** | Timestamped deposit/withdrawal records |
 
 The project uses the single-header [nlohmann/json](https://github.com/nlohmann/json) library for JSON serialization.
 
@@ -93,6 +102,7 @@ The project uses the single-header [nlohmann/json](https://github.com/nlohmann/j
   - MSVC
 - GNU Make for the Makefile workflow
 - The repository's JSON header at `include/json.hpp`
+- Catch2 single-header dependency at `tests/catch.hpp`
 
 ### Clone the repository
 
@@ -101,7 +111,7 @@ git clone https://github.com/ish4722/Bank-Management-System.git
 cd Bank-Management-System
 ```
 
-### Build with Make
+### Build
 
 ```bash
 make
@@ -111,6 +121,12 @@ make
 
 ```bash
 make run
+```
+
+### Run tests
+
+```bash
+make test
 ```
 
 ### Clean build artifacts
@@ -133,13 +149,11 @@ Then run:
 ./bank
 ```
 
-> On Windows with MinGW, use the equivalent executable name/command for your environment.
-
 ---
 
 ## 📖 Usage Guide
 
-When the application starts, it loads existing accounts from `data/accounts.json` and displays the following menu:
+When the application starts, it loads existing accounts and their transaction histories from `data/accounts.json`.
 
 ```text
 ==== WELCOME TO BANK MANAGEMENT SYSTEM ====
@@ -149,8 +163,9 @@ When the application starts, it loads existing accounts from `data/accounts.json
 4. Delete Account
 5. Deposit Money
 6. Withdraw Money
-7. Export Accounts to CSV
-8. Exit
+7. View Transaction History
+8. Export Accounts to CSV
+9. Exit
 ```
 
 ### 1️⃣ Create Account
@@ -163,47 +178,50 @@ When the application starts, it loads existing accounts from `data/accounts.json
 4. The system generates a unique account number.
 5. The new account is persisted to JSON.
 
-New accounts start with a balance of `0.00`.
+New accounts start with a balance of `0.00` and an empty transaction history.
 
 ### 2️⃣ Display Account
 
-1. Select `2`.
-2. Enter the account number.
-3. The application displays:
-   - Account number
-   - Name
-   - Balance
-   - Account type
+Displays:
+
+- Account number
+- Name
+- Balance
+- Account type
 
 ### 3️⃣ Modify Account
 
-1. Select `3`.
-2. Enter the account number.
-3. Enter the new name.
-4. Select the new account type.
-5. Changes are persisted immediately.
-
-The account number and balance are not modified.
+Allows the account holder's name and account type to be changed. The account number and balance remain unchanged.
 
 ### 4️⃣ Delete Account
 
-1. Select `4`.
-2. Enter the account number.
-3. The account is removed from the in-memory collection and JSON storage.
+Removes the account and its stored transaction history from the active JSON data.
 
 ### 5️⃣ Deposit Money
 
-1. Select `5`.
-2. Enter the account number.
-3. Enter a positive amount.
-4. The balance is increased and persisted.
+A successful deposit:
+
+1. Validates that the amount is positive.
+2. Increases the account balance.
+3. Creates a transaction record.
+4. Stores the resulting balance in that record.
+5. Records the current timestamp.
+6. Persists the updated account to JSON.
+
+Example transaction:
+
+```json
+{
+    "type": "Deposit",
+    "amount": 500.0,
+    "balance_after": 1500.0,
+    "timestamp": "2026-08-29 22:15:10"
+}
+```
 
 ### 6️⃣ Withdraw Money
 
-1. Select `6`.
-2. Enter the account number.
-3. Enter a positive amount.
-4. Withdrawal succeeds only when the account has sufficient funds.
+A successful withdrawal requires:
 
 ```text
 amount > 0
@@ -211,17 +229,93 @@ AND
 amount <= current balance
 ```
 
-### 7️⃣ Export Accounts to CSV
+After a successful withdrawal, the system records the transaction and persists the updated balance and history.
 
-Select `7` to export all accounts to:
+Failed withdrawals do **not** create transaction records.
+
+### 7️⃣ View Transaction History
+
+Enter an account number to display its transaction history:
+
+```text
+===== TRANSACTION HISTORY =====
+Timestamp             Type           Amount         Balance After
+-------------------------------------------------------------------
+2026-08-29 22:15:10   Deposit        500.00         1500.00
+2026-08-29 22:18:32   Withdrawal     200.00         1300.00
+```
+
+The history is stored with the account and survives application restarts.
+
+### 8️⃣ Export Accounts to CSV
+
+Exports account information to:
 
 ```text
 data/accounts.csv
 ```
 
-### 8️⃣ Exit
+The CSV export contains the current account state. Transaction history remains stored in JSON.
 
-Select `8` to exit the application.
+### 9️⃣ Exit
+
+Select `9` to exit the application.
+
+---
+
+## 💳 Transaction History Design
+
+Each successful monetary operation creates one `Transaction` object:
+
+```cpp
+struct Transaction {
+    TransactionType type;
+    double amount;
+    double balanceAfter;
+    std::string timestamp;
+};
+```
+
+The transaction is appended only **after** the account operation succeeds.
+
+```text
+Deposit / Withdrawal request
+          │
+          ▼
+     Validate amount
+          │
+       ┌──┴──┐
+       │     │
+     Invalid Valid
+       │     │
+       ▼     ▼
+      Fail  Update balance
+                │
+                ▼
+          Create Transaction
+                │
+                ├── Type
+                ├── Amount
+                ├── Balance After
+                └── Timestamp
+                │
+                ▼
+            save() → JSON
+```
+
+### Why store `balanceAfter`?
+
+Storing the resulting balance makes each transaction self-describing and provides a useful historical snapshot:
+
+```text
+Transaction 1: +500  → balance 1500
+Transaction 2: -200  → balance 1300
+Transaction 3: +100  → balance 1400
+```
+
+This is useful for displaying account history and auditing the sequence of successful operations.
+
+> For a production financial ledger, transactions should be immutable, uniquely identified, durably stored, and protected by database transactions and audit controls.
 
 ---
 
@@ -238,11 +332,11 @@ Bank-Management-System/
 │
 ├── include/
 │   ├── json.hpp                # nlohmann/json single-header library
-│   ├── user.h                  # User/account model
+│   ├── user.h                  # User and Transaction models
 │   └── bank.h                  # Bank/account-manager interface
 │
 ├── src/
-│   ├── user.cpp                # User implementation and JSON conversion
+│   ├── user.cpp                # User, transaction and JSON logic
 │   └── bank.cpp                # Account collection and persistence logic
 │
 ├── tests/
@@ -250,8 +344,8 @@ Bank-Management-System/
 │   └── user_test.cpp           # Unit tests
 │
 └── data/
-    ├── accounts.json           # Persistent account data
-    └── accounts.csv            # Generated CSV export
+    ├── accounts.json           # Persistent account + transaction data
+    └── accounts.csv            # Generated account export
 ```
 
 ---
@@ -260,34 +354,32 @@ Bank-Management-System/
 
 ### `User`
 
-`User` represents one bank account.
+Represents a single bank account and owns its transaction history.
 
-Private state includes:
+Private state:
 
 ```cpp
 std::string account_number;
 std::string user_name;
 double account_balance;
 Type account_type;
+std::vector<Transaction> transactions;
 ```
 
-The state is encapsulated and accessed through public methods such as:
+### `Transaction`
+
+Represents one successful deposit or withdrawal:
 
 ```cpp
-getAccountNumber()
-getUserName()
-getBalance()
-getAccountType()
-setUserName()
-setAccountType()
-setBalance()
-deposit()
-withdraw()
+TransactionType type;
+double amount;
+double balanceAfter;
+std::string timestamp;
 ```
 
 ### `Bank`
 
-`Bank` manages the complete collection of accounts:
+Owns and manages all accounts:
 
 ```cpp
 std::unordered_map<std::string, User> accounts;
@@ -304,15 +396,13 @@ Responsibilities include:
 - Deleting accounts
 - Exporting CSV
 
-This prevents `main.cpp` and the account model from maintaining separate copies of the application's account state.
-
 ---
 
 ## 🔢 Account Number Generation
 
 Account numbers are generated by `Bank` rather than relying on a process-local static counter.
 
-The current implementation generates a random 10-digit identifier and checks the existing account map before accepting it:
+The implementation generates a random 10-digit identifier and checks the existing account map before accepting it:
 
 ```text
 Generate candidate
@@ -328,7 +418,7 @@ Already exists?
 
 This avoids the restart/deletion problems associated with a simple in-memory counter.
 
-For a production financial system, an account-number/identifier service backed by durable storage would be preferable.
+For a production financial system, a durable unique identifier service would be preferable.
 
 ---
 
@@ -336,22 +426,34 @@ For a production financial system, an account-number/identifier service backed b
 
 ### JSON
 
-The application uses JSON as its file-based persistence format.
-
-Example:
+Account state and transaction history are persisted together:
 
 ```json
 [
     {
         "account_number": "4829137461",
         "user_name": "John Doe",
-        "account_balance": 1000.50,
-        "account_type": "Savings"
+        "account_balance": 1300.0,
+        "account_type": "Savings",
+        "transactions": [
+            {
+                "type": "Deposit",
+                "amount": 1500.0,
+                "balance_after": 1500.0,
+                "timestamp": "2026-08-29 22:15:10"
+            },
+            {
+                "type": "Withdrawal",
+                "amount": 200.0,
+                "balance_after": 1300.0,
+                "timestamp": "2026-08-29 22:18:32"
+            }
+        ]
     }
 ]
 ```
 
-The flow is:
+### Persistence flow
 
 ```text
 Application
@@ -378,16 +480,18 @@ At startup:
  Bank / unordered_map
 ```
 
+Older account JSON files that do not contain a `transactions` field are still loadable; such accounts start with an empty history.
+
 ### CSV
 
-CSV is used for convenient tabular export:
+CSV is used for convenient tabular account export:
 
 ```csv
 Account Number,Name,Balance,Type
-4829137461,John Doe,1000.50,Savings
+4829137461,John Doe,1300.00,Savings
 ```
 
-JSON is therefore used for persistence, while CSV is intended primarily for reporting/export.
+Transaction history remains available through JSON and the application's transaction-history menu.
 
 ---
 
@@ -395,48 +499,49 @@ JSON is therefore used for persistence, while CSV is intended primarily for repo
 
 The project uses Catch2 for unit testing.
 
-Current tests cover:
+Tests cover:
 
-- Deposit increases the balance correctly
-- Successful withdrawal decreases the balance
-- Withdrawal fails when funds are insufficient
-- Account type is correctly serialized
+- Valid deposits
+- Invalid deposits
+- Valid withdrawals
+- Insufficient balance
+- Invalid withdrawals
+- Account type serialization
+- Account field updates
+- JSON round-trip
+- Transaction creation
+- Transaction type and amount
+- Resulting balance after transaction
+- Transaction history persistence through JSON
+- Timestamp creation
 
-Example:
+Run the tests with:
 
-```cpp
-TEST_CASE("Withdraw fails with insufficient balance", "[withdraw]") {
-    User u = createTestUser("Low Funds", Type::CURRENT, 50.0);
-    bool result = u.withdraw(100.0);
-
-    REQUIRE(result == false);
-    REQUIRE(u.getBalance() == Approx(50.0));
-}
+```bash
+make test
 ```
-
-The account model is deliberately separated from interactive input so these operations can be tested without simulating terminal input.
 
 ---
 
 ## ⏱️ Complexity
 
-Let `N` be the number of accounts.
+Let `N` be the number of accounts and `T` the number of transactions for one account.
 
-| Operation | Average Complexity |
+| Operation | Complexity |
 |---|---:|
-| Find account | **O(1)** |
+| Find account | **O(1)** average |
 | Insert account | **O(1)** average |
 | Delete account | **O(1)** average |
-| Deposit | **O(1)** average + JSON write |
-| Withdraw | **O(1)** average + JSON write |
-| Modify | **O(1)** average + JSON write |
+| Deposit / Withdraw in memory | **O(1)** |
+| Append transaction | **O(1)** amortized |
+| View transaction history | **O(T)** |
 | Export CSV | **O(N)** |
-| Load JSON | **O(N)** |
-| Save JSON | **O(N)** |
+| Load JSON | **O(N + total transactions)** |
+| Save JSON | **O(N + total transactions)** |
 
-Although account lookup is now efficient, every successful mutation rewrites the complete JSON file. Therefore persistence remains **O(N)** for each mutation.
+Although account lookup is efficient, each successful mutation rewrites the complete JSON file. Therefore persistence remains proportional to the total stored data.
 
-For a large-scale system, a database with indexed records and transactional updates would be more appropriate.
+For large-scale systems, a database with indexes and transactional updates would be more appropriate.
 
 ---
 
@@ -453,7 +558,7 @@ The application validates:
 - JSON file availability/format
 - CSV file availability
 
-Invalid input is rejected rather than silently changing account state.
+Invalid deposit/withdrawal requests do not alter the balance or create transaction records.
 
 ---
 
@@ -467,15 +572,16 @@ This project intentionally remains a local educational application. A real banki
 - Database-backed persistence
 - ACID transactions
 - Concurrency control
-- Transaction IDs and immutable transaction history
+- Immutable transaction IDs
+- Double-entry accounting / ledger semantics
 - Audit logging
 - Role-based access control
-- Input/API security
-- Reliable unique identifier generation
 - Backups and disaster recovery
 - Monitoring and observability
 
-The current JSON persistence is useful for demonstrating serialization and file I/O, but should not be used as the datastore for real banking workloads.
+The current JSON persistence and `double` balance representation are suitable for demonstrating C++ concepts but are not appropriate for real financial workloads.
+
+For production monetary calculations, integer minor units (such as paise/cents) or a suitable decimal fixed-point representation should be preferred over binary floating-point values.
 
 ---
 
@@ -483,35 +589,39 @@ The current JSON persistence is useful for demonstrating serialization and file 
 
 Potential extensions include:
 
-1. **Transaction history**
-   - Deposit/withdrawal records
-   - Timestamp
-   - Amount
-   - Balance after transaction
-
-2. **Database persistence**
+1. **Database persistence**
    - SQLite for a local application
    - PostgreSQL/MySQL for a multi-user service
 
-3. **Authentication**
+2. **Authentication**
    - Login/PIN
    - Role-based permissions
 
-4. **REST API**
+3. **Transaction identifiers**
+   - Unique transaction ID
+   - Search/filter transactions
+
+4. **Advanced reporting**
+   - Statements by date range
+   - Deposits vs withdrawals
+   - Monthly summaries
+
+5. **REST API**
    - Separate frontend and backend
    - HTTP/JSON interface
 
-5. **Concurrency support**
+6. **Concurrency support**
    - Thread-safe account operations
    - Database transactions/locking
 
-6. **Stronger testing**
-   - Persistence tests
-   - Input-validation tests
-   - Property/edge-case tests
-
 7. **Better money representation**
-   - Store monetary values as integer minor units (for example, paise/cents) instead of `double` to avoid floating-point monetary precision issues.
+   - Store amounts as integer paise/cents instead of `double`
+
+8. **Stronger testing**
+   - Persistence tests
+   - Bank-level integration tests
+   - Input-validation tests
+   - Edge-case and property-based tests
 
 ---
 
@@ -529,7 +639,7 @@ Example:
 ```bash
 git checkout -b feature/transaction-history
 git add .
-git commit -m "Add transaction history"
+git commit -m "Add persistent transaction history"
 git push origin feature/transaction-history
 ```
 
