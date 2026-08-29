@@ -17,10 +17,10 @@ TEST_CASE("Deposit increases balance correctly", "[deposit]") {
 }
 
 TEST_CASE("Deposit rejects non-positive amounts", "[deposit]") {
-    User u = createTestUser();
+    User u = createTestUser("Invalid Deposit", Type::SAVINGS, 100.0);
     REQUIRE(u.deposit(0.0) == false);
     REQUIRE(u.deposit(-50.0) == false);
-    REQUIRE(u.getBalance() == Approx(0.0));
+    REQUIRE(u.getBalance() == Approx(100.0));
 }
 
 TEST_CASE("Withdraw reduces balance if sufficient", "[withdraw]") {
@@ -33,6 +33,13 @@ TEST_CASE("Withdraw fails with insufficient balance", "[withdraw]") {
     User u = createTestUser("Low Funds", Type::CURRENT, 50.0);
     REQUIRE(u.withdraw(100.0) == false);
     REQUIRE(u.getBalance() == Approx(50.0));
+}
+
+TEST_CASE("Withdraw rejects non-positive amounts", "[withdraw]") {
+    User u = createTestUser("Invalid Withdrawal", Type::CURRENT, 100.0);
+    REQUIRE(u.withdraw(0.0) == false);
+    REQUIRE(u.withdraw(-20.0) == false);
+    REQUIRE(u.getBalance() == Approx(100.0));
 }
 
 TEST_CASE("Account type is correctly serialized", "[account_type]") {
@@ -50,4 +57,14 @@ TEST_CASE("Account fields can be updated", "[setters]") {
     REQUIRE(u.getUserName() == "Updated User");
     REQUIRE(u.getAccountType() == Type::CURRENT);
     REQUIRE(u.getBalance() == Approx(500.0));
+}
+
+TEST_CASE("Account fields round-trip through JSON", "[json]") {
+    User original("1234567890", "JSON User", 1250.50, Type::SAVINGS);
+    User restored = User::fromJson(original.toJson());
+
+    REQUIRE(restored.getAccountNumber() == original.getAccountNumber());
+    REQUIRE(restored.getUserName() == original.getUserName());
+    REQUIRE(restored.getBalance() == Approx(original.getBalance()));
+    REQUIRE(restored.getAccountType() == Type::SAVINGS);
 }
