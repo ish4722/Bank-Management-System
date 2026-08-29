@@ -1,5 +1,7 @@
 # Ignore compiled binary files
 bank
+user_tests
+bank_tests
 *.exe
 *.out
 *.o
@@ -20,6 +22,11 @@ bank
 *.d
 *.dep
 
-# Ignore JSON & CSV data files
+# Ignore runtime database files
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# Ignore legacy/generated exports
 data/accounts.json
 data/accounts.csv
