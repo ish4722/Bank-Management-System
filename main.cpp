@@ -39,9 +39,7 @@ double readAmount(const string& prompt) {
     double amount;
     while (true) {
         cout << prompt;
-        if (cin >> amount && amount > 0.0) {
-            return amount;
-        }
+        if (cin >> amount && amount > 0.0) return amount;
         cin.clear();
         cin.ignore(numeric_limits<streamsize>::max(), '\n');
         cout << "Invalid amount. Please enter a positive number.\n";
@@ -72,8 +70,9 @@ int main() {
         cout << "4. Delete Account\n";
         cout << "5. Deposit Money\n";
         cout << "6. Withdraw Money\n";
-        cout << "7. Export Accounts to CSV\n";
-        cout << "8. Exit\n";
+        cout << "7. View Transaction History\n";
+        cout << "8. Export Accounts to CSV\n";
+        cout << "9. Exit\n";
         cout << "Enter your choice: ";
         choice = readChoice();
 
@@ -129,17 +128,23 @@ int main() {
                     cout << "Account Not Found, invalid amount, or insufficient balance!\n";
                 break;
             }
-            case 7:
+            case 7: {
+                const User* user = bank.findAccount(readAccountNumber());
+                if (user) user->displayTransactions();
+                else cout << "Account Not Found!\n";
+                break;
+            }
+            case 8:
                 cout << (bank.exportToCSV() ? "Accounts exported successfully to CSV.\n"
                                              : "Error exporting accounts to CSV!\n");
                 break;
-            case 8:
+            case 9:
                 cout << "Exiting... Have a Nice Day!\n";
                 break;
             default:
                 cout << "Invalid choice! Please try again.\n";
         }
-    } while (choice != 8);
+    } while (choice != 9);
 
     return 0;
 }
