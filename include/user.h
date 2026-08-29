@@ -24,6 +24,8 @@ struct Transaction {
 
 extern const std::unordered_map<Type, std::string> accountTypeMap;
 
+class Bank;
+
 class User {
 private:
     std::string account_number;
@@ -31,6 +33,8 @@ private:
     double account_balance = 0.0;
     Type account_type = Type::SAVINGS;
     std::vector<Transaction> transactions;
+
+    friend class Bank;
 
 public:
     User() = default;
