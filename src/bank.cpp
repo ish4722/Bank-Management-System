@@ -4,6 +4,7 @@
 #include <ctime>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <random>
 #include <sqlite3.h>
 #include <stdexcept>
@@ -260,9 +261,8 @@ bool Bank::withdraw(const string& accountNumber, double amount) {
     sqlite3* db = database.handle();
     if (!beginWriteTransaction()) return false;
 
-    // The balance predicate is evaluated while the write transaction owns
-    // the writer lock. This prevents two concurrent withdrawals from both
-    // observing and spending the same balance.
+    // The balance predicate is evaluated inside the write transaction.
+    // This prevents two concurrent withdrawals from both spending the same funds.
     sqlite3_stmt* update = nullptr;
     if (!prepare(db,
                  "UPDATE accounts SET balance_cents = balance_cents - ? "
