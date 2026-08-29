@@ -1,12 +1,9 @@
 #include "bank.h"
 
-#include <algorithm>
-#include <chrono>
-#include <ctime>
 #include <fstream>
 #include <iomanip>
 #include <random>
-#include <sstream>
+#include <utility>
 
 using namespace std;
 
@@ -27,15 +24,13 @@ bool Bank::load() {
     accounts.clear();
     ifstream inFile("data/accounts.json");
     if (!inFile) {
-        return true; // First run: no data file yet.
+        return true;
     }
 
     try {
         json data;
         inFile >> data;
-        if (!data.is_array()) {
-            return false;
-        }
+        if (!data.is_array()) return false;
 
         for (const auto& item : data) {
             User user = User::fromJson(item);
@@ -55,18 +50,13 @@ bool Bank::save() const {
     }
 
     ofstream outFile("data/accounts.json");
-    if (!outFile) {
-        return false;
-    }
-
+    if (!outFile) return false;
     outFile << data.dump(4);
     return static_cast<bool>(outFile);
 }
 
 bool Bank::createAccount(const string& name, Type type, string& accountNumber) {
-    if (name.empty()) {
-        return false;
-    }
+    if (name.empty()) return false;
 
     accountNumber = makeAccountNumber(accounts);
     accounts.emplace(accountNumber, User(accountNumber, name, 0.0, type));
@@ -85,25 +75,19 @@ const User* Bank::findAccount(const string& accountNumber) const {
 
 bool Bank::deposit(const string& accountNumber, double amount) {
     User* user = findAccount(accountNumber);
-    if (!user || !user->deposit(amount)) {
-        return false;
-    }
+    if (!user || !user->deposit(amount)) return false;
     return save();
 }
 
 bool Bank::withdraw(const string& accountNumber, double amount) {
     User* user = findAccount(accountNumber);
-    if (!user || !user->withdraw(amount)) {
-        return false;
-    }
+    if (!user || !user->withdraw(amount)) return false;
     return save();
 }
 
 bool Bank::modifyAccount(const string& accountNumber, const string& name, Type type) {
     User* user = findAccount(accountNumber);
-    if (!user || name.empty()) {
-        return false;
-    }
+    if (!user || name.empty()) return false;
 
     user->setUserName(name);
     user->setAccountType(type);
@@ -112,9 +96,7 @@ bool Bank::modifyAccount(const string& accountNumber, const string& name, Type t
 
 bool Bank::deleteAccount(const string& accountNumber) {
     auto it = accounts.find(accountNumber);
-    if (it == accounts.end()) {
-        return false;
-    }
+    if (it == accounts.end()) return false;
 
     accounts.erase(it);
     return save();
@@ -122,9 +104,7 @@ bool Bank::deleteAccount(const string& accountNumber) {
 
 bool Bank::exportToCSV(const string& path) const {
     ofstream outFile(path);
-    if (!outFile) {
-        return false;
-    }
+    if (!outFile) return false;
 
     outFile << "Account Number,Name,Balance,Type\n";
     for (const auto& [accountNumber, user] : accounts) {
