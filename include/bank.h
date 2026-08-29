@@ -3,13 +3,22 @@
 #include <cstddef>
 #include <string>
 #include <unordered_map>
+#include "database.h"
 #include "user.h"
 
 class Bank {
 private:
     std::unordered_map<std::string, User> accounts;
+    Database database;
+
+    bool beginWriteTransaction();
+    bool commitTransaction();
+    void rollbackTransaction();
+    bool reloadFromDatabase();
 
 public:
+    explicit Bank(const std::string& databasePath = "data/bank.db");
+
     bool load();
     bool save() const;
 
